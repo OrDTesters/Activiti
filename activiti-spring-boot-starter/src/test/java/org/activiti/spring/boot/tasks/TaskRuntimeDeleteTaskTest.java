@@ -8,10 +8,8 @@ import org.activiti.api.task.model.Task;
 import org.activiti.api.task.model.builders.TaskPayloadBuilder;
 import org.activiti.api.task.runtime.TaskAdminRuntime;
 import org.activiti.api.task.runtime.TaskRuntime;
-import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.junit.runners.MethodSorters;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.test.context.support.WithUserDetails;
@@ -23,7 +21,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @RunWith(SpringRunner.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ContextConfiguration
-@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class TaskRuntimeDeleteTaskTest {
 
     private static String currentTaskId;
@@ -34,6 +31,24 @@ public class TaskRuntimeDeleteTaskTest {
     @Autowired
     private SecurityManager securityManager;
 
+    public Page<Task> setup() {
+        taskRuntime.create(TaskPayloadBuilder.create()
+                                                     .withName("simple task")
+                                                     .withGroup("activitiTeam")
+                                                     .build());
+
+        Page<Task> tasks = taskRuntime.tasks(Pageable.of(0,
+                                                         50));
+
+        currentTaskId = tasks.getContent().get(0).getId();
+        return tasks;
+    }
+
+
+    public Task teardown(Task task) {
+        currentTaskId = null;
+        return taskRuntime.delete(TaskPayloadBuilder.delete().withTaskId(task.getId()).build());
+    }
 
     @Test
     @WithUserDetails(value = "garth", userDetailsServiceBeanName = "myUserDetailsService")
@@ -54,22 +69,14 @@ public class TaskRuntimeDeleteTaskTest {
         assertThat(task.getAssignee()).isEqualTo(authenticatedUserId);
         assertThat(task.getStatus()).isEqualTo(Task.TaskStatus.ASSIGNED);
 
-        Task deletedTask = taskRuntime.delete(TaskPayloadBuilder.delete().withTaskId(task.getId()).build());
+        Task deletedTask = teardown(task);
         assertThat(deletedTask.getStatus()).isEqualTo(Task.TaskStatus.DELETED);
     }
 
     @Test
     @WithUserDetails(value = "garth", userDetailsServiceBeanName = "myUserDetailsService")
     public void cCreateStandaloneGroupTaskClaimAndDeleteFail() {
-
-
-        Task standAloneTask = taskRuntime.create(TaskPayloadBuilder.create()
-                .withName("simple task")
-                .withGroup("activitiTeam")
-                .build());
-
-        Page<Task> tasks = taskRuntime.tasks(Pageable.of(0,
-                50));
+        Page<Task> tasks = setup();
 
         assertThat(tasks.getContent()).hasSize(1);
         Task task = tasks.getContent().get(0);
@@ -77,27 +84,30 @@ public class TaskRuntimeDeleteTaskTest {
         assertThat(task.getAssignee()).isNull();
         assertThat(task.getStatus()).isEqualTo(Task.TaskStatus.CREATED);
 
-        currentTaskId = task.getId();
-
-
+        teardown(task);
     }
 
     @Test
     @WithUserDetails(value = "salaboy", userDetailsServiceBeanName = "myUserDetailsService")
     public void dClaimTaskCreatedForGroup() {
+        Page<Task> tasks = setup();
 
         String authenticatedUserId = securityManager.getAuthenticatedUserId();
         Task claimedTask = taskRuntime.claim(TaskPayloadBuilder.claim().withTaskId(currentTaskId).build());
         assertThat(claimedTask.getAssignee()).isEqualTo(authenticatedUserId);
         assertThat(claimedTask.getStatus()).isEqualTo(Task.TaskStatus.ASSIGNED);
 
-
+        teardown(tasks.getContent().get(0));
     }
 
     @Test(expected = NotFoundException.class)
     @WithUserDetails(value = "garth", userDetailsServiceBeanName = "myUserDetailsService")
     public void eClaimTaskCreatedForGroup() {
+        Page<Task> tasks = setup();
+
         taskRuntime.delete(TaskPayloadBuilder.delete().withTaskId(currentTaskId).build());
+
+        teardown(tasks.getContent().get(0));
     }
 
     @Test
@@ -111,9 +121,5 @@ public class TaskRuntimeDeleteTaskTest {
                     .withReason("test clean up")
                     .build());
         }
-
     }
-
-
-
 }
